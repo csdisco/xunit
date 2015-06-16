@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Xunit.Abstractions;
 
 namespace Xunit.ConsoleClient
 {
@@ -15,13 +16,13 @@ namespace Xunit.ConsoleClient
         static readonly ConcurrentDictionary<string, ExecutionSummary> completionMessages = new ConcurrentDictionary<string, ExecutionSummary>();
         static readonly ConsoleLogger consoleLogger = new ConsoleLogger();
         static bool failed;
+        static IRunnerLogger logger;
+        static IMessageSink reporterMessageHandler;
         static readonly TeamCityDisplayNameFormatter teamCityDisplayNameFormatter = new TeamCityDisplayNameFormatter();
 
         [STAThread]
         public static int Main(string[] args)
         {
-            var originalForegroundColor = Console.ForegroundColor;
-
             try
             {
                 if (args.Length == 0 || args[0] == "-?")
@@ -43,13 +44,16 @@ namespace Xunit.ConsoleClient
                 };
 
                 var defaultDirectory = Directory.GetCurrentDirectory();
-                if (!defaultDirectory.EndsWith(new String(new[] { Path.DirectorySeparatorChar })))
+                if (!defaultDirectory.EndsWith(new string(new[] { Path.DirectorySeparatorChar })))
                     defaultDirectory += Path.DirectorySeparatorChar;
 
                 var commandLine = CommandLine.Parse(args);
 
                 if (commandLine.Debug)
                     Debugger.Launch();
+
+                logger = new ConsoleRunnerLogger(!commandLine.NoColor);
+                reporterMessageHandler = GetRunnerReporter().CreateMessageHandler(logger);
 
                 if (!commandLine.NoLogo)
                     PrintHeader();
@@ -80,8 +84,13 @@ namespace Xunit.ConsoleClient
             }
             finally
             {
-                Console.ForegroundColor = originalForegroundColor;
+                Console.ResetColor();
             }
+        }
+
+        static IRunnerReporter GetRunnerReporter()
+        {
+            return new DefaultRunnerReporter();
         }
 
         static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -98,22 +107,22 @@ namespace Xunit.ConsoleClient
 
         static void PrintHeader()
         {
-            Console.ForegroundColor = ConsoleColor.White;
             Console.WriteLine("xUnit.net console test runner ({0}-bit .NET {1})", IntPtr.Size * 8, Environment.Version);
             Console.WriteLine("Copyright (C) 2015 Outercurve Foundation.");
             Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Gray;
         }
 
         static void PrintUsage()
         {
             var executableName = Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().GetLocalCodeBase());
 
-            Console.WriteLine("usage: {0} <assemblyFile> [configFile] [assemblyFile [configFile]...] [options]", executableName);
+            Console.WriteLine("usage: {0} <assemblyFile> [configFile] [assemblyFile [configFile]...] [options] [reporter] [resultFormat filename [...]]", executableName);
             Console.WriteLine();
             Console.WriteLine("Note: Configuration files must end in .config");
             Console.WriteLine();
             Console.WriteLine("Valid options:");
+            Console.WriteLine("  -nologo                : do not show the copyright message");
+            Console.WriteLine("  -nocolor               : do not output results with colors");
             Console.WriteLine("  -parallel option       : set parallelization based on option");
             Console.WriteLine("                         :   none - turn off all parallelization");
             Console.WriteLine("                         :   collections - only parallelize collections");
@@ -124,10 +133,6 @@ namespace Xunit.ConsoleClient
             Console.WriteLine("                         :   unlimited - run with unbounded thread count");
             Console.WriteLine("                         :   (number)  - limit task thread pool size to 'count'");
             Console.WriteLine("  -noshadow              : do not shadow copy assemblies");
-            Console.WriteLine("  -teamcity              : forces TeamCity mode (normally auto-detected)");
-            Console.WriteLine("  -appveyor              : forces AppVeyor CI mode (normally auto-detected)");
-            Console.WriteLine("  -nologo                : do not show the copyright message");
-            Console.WriteLine("  -quiet                 : do not show progress messages");
             Console.WriteLine("  -wait                  : wait for input after completion");
             Console.WriteLine("  -diagnostics           : enable diagnostics messages for all test assemblies");
             Console.WriteLine("  -debug                 : launch the debugger to debug the tests");
@@ -142,7 +147,16 @@ namespace Xunit.ConsoleClient
             Console.WriteLine("  -class \"name\"          : run all methods in a given test class (should be fully");
             Console.WriteLine("                         : specified; i.e., 'MyNamespace.MyClass')");
             Console.WriteLine("                         : if specified more than once, acts as an OR operation");
+            Console.WriteLine();
 
+            // TODO: Replace with discovered reporters
+            Console.WriteLine("Available reporters:");
+            Console.WriteLine("  -teamcity              : forces TeamCity mode (normally auto-detected)");
+            Console.WriteLine("  -appveyor              : forces AppVeyor CI mode (normally auto-detected)");
+            Console.WriteLine("  -quiet                 : do not show progress messages");
+            Console.WriteLine();
+
+            Console.WriteLine("Available result formats:");
             TransformFactory.AvailableTransforms.ForEach(
                 transform => Console.WriteLine("  {0} : {1}",
                                                string.Format("-{0} <filename>", transform.CommandLine).PadRight(22).Substring(0, 22),
@@ -267,12 +281,13 @@ namespace Xunit.ConsoleClient
 
         static XmlTestExecutionVisitor CreateVisitor(object consoleLock, bool quiet, string defaultDirectory, XElement assemblyElement, bool teamCity, bool appVeyor)
         {
-            if (teamCity)
-                return new TeamCityVisitor(consoleLogger, assemblyElement, () => cancel, displayNameFormatter: teamCityDisplayNameFormatter);
-            else if (appVeyor)
-                return new AppVeyorVisitor(consoleLock, defaultDirectory, assemblyElement, () => cancel, completionMessages);
+            return new XmlAggregateVisitor(reporterMessageHandler, completionMessages, assemblyElement, () => cancel);
+            //if (teamCity)
+            //    return new TeamCityVisitor(consoleLogger, assemblyElement, () => cancel, displayNameFormatter: teamCityDisplayNameFormatter);
+            //else if (appVeyor)
+            //    return new AppVeyorVisitor(consoleLock, defaultDirectory, assemblyElement, () => cancel, completionMessages);
 
-            return new StandardOutputVisitor(consoleLock, quiet, defaultDirectory, assemblyElement, () => cancel, completionMessages);
+            //return new StandardOutputVisitor(consoleLock, quiet, defaultDirectory, assemblyElement, () => cancel, completionMessages);
         }
 
         static XElement ExecuteAssembly(object consoleLock,
@@ -301,6 +316,7 @@ namespace Xunit.ConsoleClient
                 if (diagnosticMessages)
                     assembly.Configuration.DiagnosticMessages = true;
 
+                // Setup discovery and execution options with command-line overrides
                 var discoveryOptions = TestFrameworkOptions.ForDiscovery(assembly.Configuration);
                 var executionOptions = TestFrameworkOptions.ForExecution(assembly.Configuration);
                 if (maxThreadCount.HasValue && maxThreadCount.Value > -1)
@@ -310,33 +326,27 @@ namespace Xunit.ConsoleClient
 
                 var assemblyDisplayName = Path.GetFileNameWithoutExtension(assembly.AssemblyFilename);
 
-                if (!quiet)
-                    lock (consoleLock)
-                    {
-                        if (assembly.Configuration.DiagnosticMessagesOrDefault)
-                            Console.WriteLine("Discovering: {0} (method display = {1}, parallel test collections = {2}, max threads = {3})",
-                                              assemblyDisplayName,
-                                              discoveryOptions.GetMethodDisplayOrDefault(),
-                                              !executionOptions.GetDisableParallelizationOrDefault(),
-                                              executionOptions.GetMaxParallelThreadsOrDefault());
-                        else
-                            Console.WriteLine("Discovering: {0}", assemblyDisplayName);
-                    }
+                // TODO: Quiet
 
                 var diagnosticMessageVisitor = new DiagnosticMessageVisitor(consoleLock, assemblyDisplayName, assembly.Configuration.DiagnosticMessagesOrDefault);
 
                 using (var controller = new XunitFrontController(assembly.AssemblyFilename, assembly.ConfigFilename, assembly.ShadowCopy, diagnosticMessageSink: diagnosticMessageVisitor))
                 using (var discoveryVisitor = new TestDiscoveryVisitor())
                 {
+                    // Discover & filter the tests
+                    reporterMessageHandler.OnMessage(new TestAssemblyDiscoveryStarting(assembly, discoveryOptions, executionOptions));
+
                     controller.Find(includeSourceInformation: false, messageSink: discoveryVisitor, discoveryOptions: discoveryOptions);
                     discoveryVisitor.Finished.WaitOne();
 
-                    if (!quiet)
-                        lock (consoleLock)
-                            Console.WriteLine("Discovered:  {0}", Path.GetFileNameWithoutExtension(assembly.AssemblyFilename));
-
+                    var testCasesDiscovered = discoveryVisitor.TestCases.Count;
                     var filteredTestCases = discoveryVisitor.TestCases.Where(filters.Filter).ToList();
-                    if (filteredTestCases.Count == 0)
+                    var testCasesToRun = filteredTestCases.Count;
+
+                    reporterMessageHandler.OnMessage(new TestAssemblyDiscoveryFinished(assembly, discoveryOptions, executionOptions, testCasesDiscovered, testCasesToRun));
+
+                    // Run the filtered tests
+                    if (testCasesToRun == 0)
                         completionMessages.TryAdd(Path.GetFileName(assembly.AssemblyFilename), new ExecutionSummary());
                     else
                     {

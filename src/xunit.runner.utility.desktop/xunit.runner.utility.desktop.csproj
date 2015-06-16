@@ -108,6 +108,7 @@
     <Compile Include="..\common\XunitSerializationInfo.cs">
       <Link>Common\XunitSerializationInfo.cs</Link>
     </Compile>
+    <Compile Include="Extensibility\ConsoleRunnerLogger.cs" />
     <Compile Include="Frameworks\v1\IXunit1Executor.cs" />
     <Compile Include="Frameworks\v1\TestClassCallbackHandler.cs" />
     <Compile Include="Frameworks\v1\XmlNodeCallbackHandler.cs" />
@@ -134,6 +135,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="project.json" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

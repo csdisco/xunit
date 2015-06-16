@@ -1,8 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Xunit.ConsoleClient
+namespace Xunit
 {
     /// <summary>
     /// Transforms stack frames and stack traces into compiler-like output
@@ -10,14 +10,19 @@ namespace Xunit.ConsoleClient
     /// </summary>
     public static class StackFrameTransformer
     {
-        static Regex regex;
+        static readonly Regex regex;
 
         static StackFrameTransformer()
         {
             regex = new Regex(@"^\s*at (?<method>.*) in (?<file>.*):(line )?(?<line>\d+)$");
         }
 
-        /// <summary/>
+        /// <summary>
+        /// Transforms an individual stack frame.
+        /// </summary>
+        /// <param name="stackFrame">The stack frame to transform</param>
+        /// <param name="defaultDirectory">The default directory used for computing relative paths</param>
+        /// <returns>The transformed stack frame</returns>
         public static string TransformFrame(string stackFrame, string defaultDirectory)
         {
             if (stackFrame == null)
@@ -37,18 +42,23 @@ namespace Xunit.ConsoleClient
                                  match.Groups["method"].Value);
         }
 
-        /// <summary/>
+        /// <summary>
+        /// Transforms a stack.
+        /// </summary>
+        /// <param name="stack">The stack to transform</param>
+        /// <param name="defaultDirectory">The default directory used for computing relative paths</param>
+        /// <returns>The transformed stack</returns>
         public static string TransformStack(string stack, string defaultDirectory)
         {
             if (stack == null)
                 return null;
 
-            List<string> results = new List<string>();
-
-            foreach (string frame in stack.Split(new[] { Environment.NewLine }, StringSplitOptions.None))
-                results.Add(TransformFrame(frame, defaultDirectory));
-
-            return string.Join(Environment.NewLine, results.ToArray());
+            return string.Join(
+                Environment.NewLine,
+                stack.Split(new[] { Environment.NewLine }, StringSplitOptions.None)
+                     .Select(frame => TransformFrame(frame, defaultDirectory))
+                     .ToArray()
+            );
         }
     }
 }

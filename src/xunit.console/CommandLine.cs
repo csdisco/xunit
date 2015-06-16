@@ -29,6 +29,8 @@ namespace Xunit.ConsoleClient
 
         public int? MaxParallelThreads { get; set; }
 
+        public bool NoColor { get; protected set; }
+
         public bool NoLogo { get; protected set; }
 
         public XunitProject Project { get; protected set; }
@@ -118,6 +120,11 @@ namespace Xunit.ConsoleClient
                 {
                     GuardNoOptionValue(option);
                     NoLogo = true;
+                }
+                else if (optionName == "-nocolor")
+                {
+                    GuardNoOptionValue(option);
+                    NoColor = true;
                 }
                 else if (optionName == "-quiet")
                 {

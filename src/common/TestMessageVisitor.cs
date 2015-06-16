@@ -35,6 +35,10 @@ namespace Xunit
         public virtual bool OnMessage(IMessageSinkMessage message)
         {
             return
+#if !XUNIT_CORE_DLL
+                DoVisit<ITestAssemblyDiscoveryFinished>(message, Visit) &&
+                DoVisit<ITestAssemblyDiscoveryStarting>(message, Visit) &&
+#endif
                 DoVisit<IAfterTestFinished>(message, Visit) &&
                 DoVisit<IAfterTestStarting>(message, Visit) &&
                 DoVisit<IBeforeTestFinished>(message, Visit) &&
@@ -70,6 +74,28 @@ namespace Xunit
                 DoVisit<ITestSkipped>(message, Visit) &&
                 DoVisit<ITestStarting>(message, Visit);
         }
+
+#if !XUNIT_CORE_DLL
+        /// <summary>
+        /// Called when an instance of <see cref="ITestAssemblyDiscoveryFinished"/> is sent to the message sink.
+        /// </summary>
+        /// <param name="discoveryFinished">The message.</param>
+        /// <returns>Return <c>true</c> to continue executing tests; <c>false</c> otherwise.</returns>
+        protected virtual bool Visit(ITestAssemblyDiscoveryFinished discoveryFinished)
+        {
+            return true;
+        }
+
+        /// <summary>
+        /// Called when an instance of <see cref="ITestAssemblyDiscoveryStarting"/> is sent to the message sink.
+        /// </summary>
+        /// <param name="discoveryStarting">The message.</param>
+        /// <returns>Return <c>true</c> to continue executing tests; <c>false</c> otherwise.</returns>
+        protected virtual bool Visit(ITestAssemblyDiscoveryStarting discoveryStarting)
+        {
+            return true;
+        }
+#endif
 
         /// <summary>
         /// Called when an instance of <see cref="IAfterTestFinished"/> is sent to the message sink.
