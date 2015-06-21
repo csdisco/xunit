@@ -96,6 +96,14 @@ namespace Xunit.ConsoleClient
 
         protected override bool Visit(ITestStarting testStarting)
         {
+            lock (consoleLock)
+            {
+                // TODO: Thread-safe way to figure out the default foreground color
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine("   {0} [Starting]", Escape(testStarting.Test.DisplayName));
+                Console.ForegroundColor = ConsoleColor.Gray;
+            }
+
             return base.Visit(testStarting);
         }
 
